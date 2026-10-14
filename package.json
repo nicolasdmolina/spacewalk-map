@@ -1,0 +1,12 @@
+{
+  "name": "spacewalk",
+  "private": true,
+  "version": "0.1.0",
+  "description": "A live, read-only map of what fills a Mac's disk.",
+  "license": "MIT",
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "test": "node --test \"test/*.test.mjs\""
+  }
+}

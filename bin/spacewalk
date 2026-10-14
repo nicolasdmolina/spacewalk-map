@@ -1,0 +1,58 @@
+#!/bin/bash
+# Starts Spacewalk. Builds the scanner and the web app first when either is
+# missing or older than its source, then runs the server with every option
+# passed through (spacewalk --help lists them).
+set -euo pipefail
+
+here=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/..
+here=$(cd "$here" && pwd)
+
+# Over SSH the shell may not know about Homebrew.
+if ! command -v node >/dev/null 2>&1 && [[ -x /opt/homebrew/bin/node ]]; then
+  PATH="/opt/homebrew/bin:$PATH"
+fi
+if ! command -v node >/dev/null 2>&1; then
+  echo "Spacewalk needs Node.js 22 or newer. Install it with: brew install node" >&2
+  exit 1
+fi
+
+help=0
+for arg in "$@"; do
+  [[ $arg == -h || $arg == --help ]] && help=1
+done
+
+scanner="$here/scanner/spacewalk-scan"
+if ((!help)) && [[ ! -x $scanner || $here/scanner/scan.c -nt $scanner ]]; then
+  echo "Building the scanner." >&2
+  /usr/bin/clang -O2 -Wall -Wextra -framework CoreFoundation -o "$scanner" "$here/scanner/scan.c"
+fi
+
+ui="$here/ui"
+built="$ui/dist/index.html"
+
+ui_is_stale() {
+  [[ ! -f $built ]] && return 0
+  [[ -n $(find "$ui/src" "$ui/public" "$ui/index.html" "$ui/package.json" "$ui"/vite.config.* \
+    -newer "$built" -print -quit 2>/dev/null) ]]
+}
+
+build_ui() {
+  (
+    cd "$ui"
+    if [[ ! -f node_modules/.package-lock.json || package-lock.json -nt node_modules/.package-lock.json ]]; then
+      echo "Installing the web app's packages." >&2
+      npm ci --no-audit --no-fund --loglevel=error
+    fi
+    echo "Building the web app." >&2
+    npm run build --silent
+  )
+}
+
+if ((!help)) && [[ -f $ui/package.json ]] && ui_is_stale; then
+  if ! build_ui; then
+    [[ -f $built ]] || exit 1
+    echo "The web app did not rebuild, so Spacewalk is showing its last build." >&2
+  fi
+fi
+
+exec node "$here/server/server.mjs" "$@"
